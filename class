@@ -1,0 +1,77 @@
+
+    @AuraEnabled
+    public static AuraResponse sendMassEmail(String fromAddress, String toAddress, String ccAddress, List<String> bccAddress,
+                                             String subject, String emailBody){
+        Messaging.SingleEmailMessage message = new Messaging.SingleEmailMessage();
+        List<String> toAddresses = new List<String>();
+        List<String> ccAddresses = new List<String>();
+        Set<String> allEmailAddresses = new Set<String>();  
+        List<Id> bccContactIds = new List<Id>();
+        List<Id> ccContactIds = new List<Id>();
+        List<Id> toContactIds = new List<Id>();
+       
+        message.setSubject(subject);
+        message.setHtmlBody(emailBody);         
+                                                
+        if(bccAddress.size() > 0){
+            allEmailAddresses.addAll(bccAddress);            
+        }
+        if(String.isNotBlank(toAddress)){
+            toAddresses = toAddress.split(';');  
+            allEmailAddresses.addAll(toAddresses);  
+        }        
+        if(String.isNotBlank(ccAddress)){
+            ccAddresses = ccAddress.split(';');  
+            allEmailAddresses.addAll(ccAddresses);
+        }  
+        
+        
+       	List<Contact> contactList = [SELECT Id, Email FROM Contact WHERE Email IN : allEmailAddresses];
+        
+        List<Task> taskList = new List<Task>();                                        
+        for(Contact con : contactList){
+            if(bccAddress.contains(con.Email) || ccAddresses.contains(con.Email)){
+        		Task ts = new Task();
+                String tasksubject = (subject != null) ? subject : '';
+                ts.Subject = 'Email:' + tasksubject;
+                ts.TaskSubtype = 'Email';  
+                if(bccAddress.contains(con.Email)){
+            		ts.Description = createDescription('', '', con.Email, subject, emailBody);    
+                }
+                else if(ccAddresses.contains(con.Email)){
+                    ts.Description = createDescription('', con.Email, '', subject, emailBody);
+                }
+                ts.WhoId = con.Id;            
+                ts.ActivityDate = Date.today();
+                ts.OwnerId = UserInfo.getUserId();
+                ts.Priority = 'Normal';
+                ts.Status = 'Completed';
+                taskList.add(ts);
+            }
+            
+            if(bccAddress.contains(con.Email)){
+            	bccContactIds.add(con.Id);
+            } 
+            else if(ccAddresses.contains(con.Email)){
+            	ccContactIds.add(con.Id);
+            } 
+            else if(toAddresses.contains(con.Email)){
+            	toContactIds.add(con.Id);
+            }  
+        }
+                                                 
+        message.setBccAddresses(bccContactIds);
+        message.setToAddresses(toContactIds); 
+        message.setCcAddresses(ccContactIds);                                                  
+                                                 
+        Messaging.SingleEmailMessage[] messages = 
+            new List<Messaging.SingleEmailMessage> {message};
+        Messaging.SendEmailResult[] results = Messaging.sendEmail(messages);
+                                                 
+        if (results[0].success) {
+            insert taskList;
+            return new AuraResponse(true, 'SUCCESS', 'success');
+        } else {
+            return new AuraResponse(false, 'ERROR', results[0].errors[0].message);            
+        }        
+    }
